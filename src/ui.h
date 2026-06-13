@@ -36,7 +36,8 @@ private:
         ChooseSize,
         ChooseDifficulty,
         Complete,
-        Stats
+        Stats,
+        CheckResult
     };
 
     struct StatsRecord {
@@ -60,6 +61,7 @@ private:
     ModalMode modal_ = ModalMode::None;
     int pending_size_ = 9;
     Rect new_button_;
+    Rect check_button_;
     Rect stats_button_;
     Rect exit_button_;
     Rect board_rect_;
@@ -71,6 +73,7 @@ private:
     std::vector<int> modal_values_;
     std::vector<StatsRecord> stats_;
     int stats_selected_size_ = 9;
+    int last_check_invalid_count_ = 0;
     bool completion_recorded_for_current_puzzle_ = false;
 
     void initialize_state();
@@ -93,6 +96,7 @@ private:
     void draw_modal(cairo_t* cr, int width, int height);
     void draw_completion_popup(cairo_t* cr, int width, int height);
     void draw_stats_modal(cairo_t* cr, int width, int height);
+    void draw_check_result_popup(cairo_t* cr, int width, int height);
     void draw_completion_banner(cairo_t* cr, int width, int height);
 
     guint32 last_tap_time_ = 0;

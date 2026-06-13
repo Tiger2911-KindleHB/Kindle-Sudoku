@@ -640,33 +640,41 @@ void SudokuApp::draw(cairo_t* cr, int width, int height) {
 }
 
 void SudokuApp::draw_top_bar(cairo_t* cr, int width, int height) {
-    const double button_h = std::max(46.0, std::min(68.0, height * 0.075));
-    const double button_w = std::max(88.0, std::min(140.0, width * 0.16));
+    const double button_h = std::max(52.0, std::min(74.0, height * 0.078));
+    const double button_w = std::max(90.0, std::min(138.0, width * 0.135));
     const double margin = std::max(10.0, width * 0.018);
     const double top_gap = std::max(8.0, width * 0.012);
 
     new_button_ = Rect{margin, margin, button_w, button_h};
+    check_button_ = Rect{new_button_.x + new_button_.w + top_gap, margin, button_w, button_h};
     exit_button_ = Rect{width - margin - button_w, margin, button_w, button_h};
     stats_button_ = Rect{exit_button_.x - top_gap - button_w, margin, button_w, button_h};
 
     stroke_rect(cr, new_button_, 0.0, 3.0);
+    stroke_rect(cr, check_button_, 0.0, 3.0);
     stroke_rect(cr, stats_button_, 0.0, 3.0);
     stroke_rect(cr, exit_button_, 0.0, 3.0);
     draw_text(cr, "New", new_button_, button_h * 0.43, true, 0.0);
-    draw_text(cr, "Stats", stats_button_, button_h * 0.39, true, 0.0);
+    draw_text(cr, "Check", check_button_, button_h * 0.38, true, 0.0);
+    draw_text(cr, "Stats", stats_button_, button_h * 0.38, true, 0.0);
     draw_text(cr, "Exit", exit_button_, button_h * 0.43, true, 0.0);
 
     std::ostringstream title;
-    title << state_.spec.label << "  " << difficulty_to_string(state_.difficulty)
-          << "  " << time_label(current_elapsed_seconds());
-    Rect title_rect{new_button_.x + new_button_.w + 8, margin, stats_button_.x - new_button_.x - new_button_.w - 16, button_h};
-    draw_text(cr, title.str(), title_rect, std::max(18.0, button_h * 0.32), true, 0.0);
+    title << state_.spec.label << "  |  " << difficulty_to_string(state_.difficulty)
+          << "  |  " << time_label(current_elapsed_seconds());
+
+    const double title_x = check_button_.x + check_button_.w + top_gap;
+    const double title_w = std::max(120.0, stats_button_.x - title_x - top_gap);
+    Rect title_box{title_x, margin, title_w, button_h};
+    fill_rect(cr, title_box, 1.0);
+    stroke_rect(cr, title_box, 0.0, 2.5);
+    draw_text(cr, title.str(), title_box, std::max(24.0, button_h * 0.38), true, 0.0);
 }
 
 void SudokuApp::draw_board(cairo_t* cr, int width, int height) {
     const int n = state_.spec.size;
-    const double top_reserved = std::max(74.0, height * 0.095);
-    const double bottom_reserved = std::max(245.0, height * 0.30);
+    const double top_reserved = std::max(84.0, height * 0.105);
+    const double bottom_reserved = std::max(345.0, height * 0.34);
     double max_board = std::min(width * 0.94, height - top_reserved - bottom_reserved);
     max_board = std::max(220.0, max_board);
     double cell = std::floor(max_board / n);
@@ -727,21 +735,20 @@ void SudokuApp::draw_board(cairo_t* cr, int width, int height) {
 
 void SudokuApp::draw_controls(cairo_t* cr, int width, int height) {
     const double bottom_margin = std::max(12.0, height * 0.02);
-    const double number_h = std::max(92.0, std::min(132.0, height * 0.135));
-    const double mode_h = std::max(46.0, std::min(66.0, height * 0.07));
-    const double gap = std::max(8.0, width * 0.012);
+    const double number_h = std::max(146.0, std::min(190.0, height * 0.16));
+    const double mode_side = std::max(104.0, std::min(148.0, height * 0.12));
+    const double gap = std::max(10.0, width * 0.012);
 
-    normal_button_ = Rect{std::max(10.0, width * 0.05), height - bottom_margin - number_h - gap - mode_h,
-                          width * 0.40, mode_h};
-    pencil_button_ = Rect{width - normal_button_.x - normal_button_.w, normal_button_.y,
-                          normal_button_.w, mode_h};
+    const double mode_y = height - bottom_margin - number_h - gap - mode_side;
+    normal_button_ = Rect{std::max(14.0, width * 0.055), mode_y, mode_side, mode_side};
+    pencil_button_ = Rect{width - normal_button_.x - mode_side, mode_y, mode_side, mode_side};
 
     auto draw_mode_button = [&](const Rect& rect, const std::string& label, bool active) {
         if (active) fill_rect(cr, rect, 0.0);
-        stroke_rect(cr, rect, 0.0, 3.0);
-        draw_text(cr, label, rect, mode_h * 0.38, true, active ? 1.0 : 0.0);
+        stroke_rect(cr, rect, 0.0, 4.0);
+        draw_text(cr, label, rect, mode_side * 0.34, true, active ? 1.0 : 0.0);
     };
-    draw_mode_button(normal_button_, "Normal", state_.mode == EntryMode::Normal);
+    draw_mode_button(normal_button_, "Ink", state_.mode == EntryMode::Normal);
     draw_mode_button(pencil_button_, "Pencil", state_.mode == EntryMode::Pencil);
 
     number_buttons_.clear();
@@ -754,8 +761,9 @@ void SudokuApp::draw_controls(cairo_t* cr, int width, int height) {
     }
 
     const int count = static_cast<int>(visible_numbers.size());
-    const double candidate_w = std::min(128.0, (width * 0.96 - gap * (count - 1)) / count);
-    const double button_w = std::max(76.0, candidate_w);
+    const double usable_w = width * 0.96;
+    const double candidate_w = (usable_w - gap * (count - 1)) / count;
+    const double button_w = std::max(72.0, std::min(142.0, candidate_w));
     const double total_w = count * button_w + (count - 1) * gap;
     double x = std::floor((width - total_w) / 2.0);
     const double y = height - bottom_margin - number_h;
@@ -764,8 +772,8 @@ void SudokuApp::draw_controls(cairo_t* cr, int width, int height) {
         Rect r{x, y, button_w, number_h};
         const bool active = value == state_.selected_number;
         if (active) fill_rect(cr, r, 0.0);
-        stroke_rect(cr, r, 0.0, 3.0);
-        draw_text(cr, digit_label(value), r, number_h * 0.52, true, active ? 1.0 : 0.0);
+        stroke_rect(cr, r, 0.0, 4.0);
+        draw_text(cr, digit_label(value), r, number_h * 0.50, true, active ? 1.0 : 0.0);
         number_buttons_.push_back(r);
         number_button_values_.push_back(value);
         x += button_w + gap;
@@ -782,6 +790,11 @@ void SudokuApp::draw_modal(cairo_t* cr, int width, int height) {
     }
     if (modal_ == ModalMode::Stats) {
         draw_stats_modal(cr, width, height);
+        return;
+    }
+
+    if (modal_ == ModalMode::CheckResult) {
+        draw_check_result_popup(cr, width, height);
         return;
     }
 
@@ -940,6 +953,37 @@ void SudokuApp::draw_stats_modal(cairo_t* cr, int width, int height) {
     modal_values_.push_back(-1);
 }
 
+void SudokuApp::draw_check_result_popup(cairo_t* cr, int width, int height) {
+    fill_rect(cr, Rect{0, 0, static_cast<double>(width), static_cast<double>(height)}, 0.78);
+
+    const double box_w = std::min(width * 0.84, 620.0);
+    const double box_h = std::min(height * 0.42, 390.0);
+    Rect box{std::floor((width - box_w) / 2.0), std::floor((height - box_h) / 2.0), box_w, box_h};
+    fill_rect(cr, box, 1.0);
+    stroke_rect(cr, box, 0.0, 5.0);
+
+    Rect title{box.x + 28, box.y + 26, box.w - 56, 62};
+    draw_text(cr, "Check Puzzle", title, 34.0, true, 0.0);
+
+    std::ostringstream message;
+    if (last_check_invalid_count_ == 0) {
+        message << "No invalid entries found.";
+    } else if (last_check_invalid_count_ == 1) {
+        message << "There is 1 invalid entry.";
+    } else {
+        message << "There are " << last_check_invalid_count_ << " invalid entries.";
+    }
+
+    Rect body{box.x + 36, title.y + title.h + 18, box.w - 72, 82};
+    draw_text(cr, message.str(), body, 28.0, true, 0.0);
+
+    Rect close{box.x + 60.0, box.y + box.h - 88.0, box.w - 120.0, 58.0};
+    stroke_rect(cr, close, 0.0, 3.0);
+    draw_text(cr, "Close", close, 26.0, true, 0.0);
+    modal_buttons_.push_back(close);
+    modal_values_.push_back(-1);
+}
+
 void SudokuApp::draw_completion_banner(cairo_t* cr, int width, int height) {
     const double banner_w = std::min(width * 0.70, 520.0);
     const double banner_h = 62.0;
@@ -958,6 +1002,18 @@ void SudokuApp::handle_tap(double x, double y) {
     if (new_button_.contains(x, y)) {
         modal_ = ModalMode::ChooseSize;
         state_.highlight_number = 0;
+        queue_redraw();
+        return;
+    }
+
+    if (check_button_.contains(x, y)) {
+        state_.refresh_incorrect_flags();
+        last_check_invalid_count_ = 0;
+        for (bool invalid : state_.incorrect) {
+            if (invalid) ++last_check_invalid_count_;
+        }
+        modal_ = ModalMode::CheckResult;
+        save_now();
         queue_redraw();
         return;
     }

@@ -1,0 +1,7 @@
+builddir/
+builddir_*/
+build/
+dist/
+*.o
+*.tmp
+.DS_Store

@@ -86,20 +86,62 @@ std::string time_label(long seconds) {
     return out.str();
 }
 
+void append_app_log(const std::string& app_dir, const std::string& message) {
+    const std::string path = app_dir + "/data/app.log";
+    FILE* fp = std::fopen(path.c_str(), "a");
+    if (!fp) return;
+    const std::time_t now = std::time(nullptr);
+    std::fprintf(fp, "%ld %s\n", static_cast<long>(now), message.c_str());
+    std::fclose(fp);
+}
+
+gboolean raise_window_once(gpointer data) {
+    GtkWidget* window = GTK_WIDGET(data);
+    if (!window || !GTK_IS_WINDOW(window)) return FALSE;
+
+    gtk_window_fullscreen(GTK_WINDOW(window));
+    gtk_window_set_keep_above(GTK_WINDOW(window), TRUE);
+    gtk_window_present(GTK_WINDOW(window));
+
+    GdkWindow* gdk_window = gtk_widget_get_window(window);
+    if (gdk_window) {
+        gdk_window_raise(gdk_window);
+        gdk_window_focus(gdk_window, GDK_CURRENT_TIME);
+    }
+    return FALSE;
+}
+
 } // namespace
 
 SudokuApp::SudokuApp(int argc, char** argv, std::string app_dir)
     : app_dir_(std::move(app_dir)),
       save_(app_dir_ + "/data/save.dat") {
+    append_app_log(app_dir_, "constructor: before gtk_init");
     gtk_init(&argc, &argv);
+    append_app_log(app_dir_, "constructor: after gtk_init");
     initialize_state();
     create_window();
+    append_app_log(app_dir_, "constructor: window created");
 }
 
 int SudokuApp::run() {
+    append_app_log(app_dir_, "run: show window");
     gtk_widget_show_all(window_);
     gtk_window_fullscreen(GTK_WINDOW(window_));
+    gtk_window_set_keep_above(GTK_WINDOW(window_), TRUE);
+    gtk_window_present(GTK_WINDOW(window_));
+    raise_window_once(window_);
+
+    // Kindle's home framework can steal focus immediately after KUAL starts a
+    // native process. Raise the window a few times after mapping so the game is
+    // visible instead of running behind the Kindle home screen.
+    g_timeout_add(250, raise_window_once, window_);
+    g_timeout_add(750, raise_window_once, window_);
+    g_timeout_add(1500, raise_window_once, window_);
+
+    append_app_log(app_dir_, "run: enter gtk_main");
     gtk_main();
+    append_app_log(app_dir_, "run: exit gtk_main");
     return 0;
 }
 
@@ -116,8 +158,11 @@ void SudokuApp::create_window() {
     gtk_window_set_decorated(GTK_WINDOW(window_), FALSE);
     gtk_window_set_resizable(GTK_WINDOW(window_), TRUE);
     gtk_window_set_position(GTK_WINDOW(window_), GTK_WIN_POS_CENTER);
+    gtk_window_set_keep_above(GTK_WINDOW(window_), TRUE);
+    gtk_window_set_default_size(GTK_WINDOW(window_), gdk_screen_width(), gdk_screen_height());
 
     canvas_ = gtk_drawing_area_new();
+    gtk_widget_set_size_request(canvas_, gdk_screen_width(), gdk_screen_height());
     gtk_widget_set_app_paintable(canvas_, TRUE);
     gtk_widget_add_events(canvas_, GDK_BUTTON_PRESS_MASK);
     gtk_container_add(GTK_CONTAINER(window_), canvas_);
@@ -140,6 +185,11 @@ void SudokuApp::new_game(int size, Difficulty difficulty) {
 }
 
 void SudokuApp::draw(cairo_t* cr, int width, int height) {
+    static bool logged_first_draw = false;
+    if (!logged_first_draw) {
+        logged_first_draw = true;
+        append_app_log(app_dir_, "draw: first expose");
+    }
     fill_rect(cr, Rect{0, 0, static_cast<double>(width), static_cast<double>(height)}, 1.0);
     draw_top_bar(cr, width, height);
     draw_board(cr, width, height);
@@ -500,6 +550,7 @@ gboolean SudokuApp::on_button_press(GtkWidget*, GdkEventButton* event, gpointer 
 
 gboolean SudokuApp::on_delete(GtkWidget*, GdkEvent*, gpointer data) {
     SudokuApp* app = static_cast<SudokuApp*>(data);
+    append_app_log(app->app_dir_, "window delete event");
     app->save_now();
     return FALSE;
 }

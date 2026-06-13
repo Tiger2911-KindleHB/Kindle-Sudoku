@@ -4,24 +4,49 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="kindlehf"
 TOOLCHAIN_DIR="$HOME/x-tools/arm-kindlehf-linux-gnueabihf"
+TOOLCHAIN_BIN="$TOOLCHAIN_DIR/bin/arm-kindlehf-linux-gnueabihf-g++"
 CROSS_FILE="$TOOLCHAIN_DIR/meson-crosscompile.txt"
+SDK_DIR="$HOME/kindle-sdk"
+SDK_MARKER="$TOOLCHAIN_DIR/.kindle-sdk-installed"
+TOOLCHAIN_URL="https://github.com/koreader/koxtoolchain/releases/download/2025.05/kindlehf.tar.gz"
 
 cd "$ROOT_DIR"
+
+echo "Using prebuilt kindlehf toolchain only. This script intentionally does not run koxtoolchain/gen-tc.sh."
+
+if [[ ! -x "$TOOLCHAIN_BIN" ]]; then
+  echo "Installing prebuilt KOReader kindlehf toolchain..."
+  rm -rf "$TOOLCHAIN_DIR"
+  mkdir -p "$HOME/x-tools"
+  curl -fL \
+    --retry 5 \
+    --retry-delay 5 \
+    --connect-timeout 30 \
+    --max-time 600 \
+    -o /tmp/kindlehf.tar.gz \
+    "$TOOLCHAIN_URL"
+  tar -xzf /tmp/kindlehf.tar.gz -C "$HOME"
+fi
+
+if [[ ! -x "$TOOLCHAIN_BIN" ]]; then
+  echo "Missing Kindle compiler after installing prebuilt toolchain: $TOOLCHAIN_BIN" >&2
+  exit 1
+fi
+
 export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+"$TOOLCHAIN_BIN" --version | head -n 1
 
-if [[ ! -x "$TOOLCHAIN_DIR/bin/arm-kindlehf-linux-gnueabihf-g++" || ! -f "$CROSS_FILE" ]]; then
-  rm -rf /tmp/koxtoolchain
-  git clone --recursive --depth=1 https://github.com/koreader/koxtoolchain.git /tmp/koxtoolchain
-  chmod +x /tmp/koxtoolchain/gen-tc.sh
-  (cd /tmp/koxtoolchain && ./gen-tc.sh "$TARGET")
+if [[ ! -d "$SDK_DIR" ]]; then
+  git clone --recursive --depth=1 https://github.com/KindleModding/kindle-sdk.git "$SDK_DIR"
 fi
 
-if [[ ! -d "$HOME/kindle-sdk" ]]; then
-  git clone --recursive --depth=1 https://github.com/KindleModding/kindle-sdk.git "$HOME/kindle-sdk"
+# Kindle SDK adds Kindle libraries/pkg-config data on top of the existing prebuilt toolchain.
+# It should not build the cross-toolchain from source.
+if [[ ! -f "$SDK_MARKER" || ! -f "$CROSS_FILE" ]]; then
+  chmod +x "$SDK_DIR/gen-sdk.sh"
+  (cd "$SDK_DIR" && ./gen-sdk.sh "$TARGET")
+  touch "$SDK_MARKER"
 fi
-
-chmod +x "$HOME/kindle-sdk/gen-sdk.sh"
-(cd "$HOME/kindle-sdk" && ./gen-sdk.sh "$TARGET")
 
 if [[ ! -f "$CROSS_FILE" ]]; then
   echo "Missing Meson cross file: $CROSS_FILE" >&2

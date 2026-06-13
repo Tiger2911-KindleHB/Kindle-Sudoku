@@ -46,6 +46,7 @@ mkdir -p "$DATA_DIR"
   export HOME="$APP_DIR"
   export GTK_IM_MODULE=xim
   export GDK_USE_XFT=1
+  export GDK_CORE_DEVICE_EVENTS=1
 
   # Do not let the screensaver trigger while the game is active.
   lipc-set-prop com.lab126.powerd preventScreenSaver 1 >/dev/null 2>&1 || true

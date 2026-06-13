@@ -34,6 +34,7 @@ private:
     };
 
     GtkWidget* window_ = nullptr;
+    GtkWidget* event_box_ = nullptr;
     GtkWidget* canvas_ = nullptr;
 
     std::string app_dir_;
@@ -55,6 +56,7 @@ private:
 
     void initialize_state();
     void create_window();
+    void configure_input_widgets();
     void save_now();
     void new_game(int size, Difficulty difficulty);
 
@@ -73,11 +75,14 @@ private:
     void handle_modal_tap(double x, double y);
     void handle_board_tap(double x, double y);
     bool should_process_button_event(GdkEventButton* event);
+    void log_button_event(const char* source, const char* phase, GdkEventButton* event);
     void queue_redraw();
 
     static gboolean on_expose(GtkWidget* widget, GdkEventExpose* event, gpointer data);
     static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer data);
     static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer data);
+    static gboolean on_root_button_press(GtkWidget* widget, GdkEventButton* event, gpointer data);
+    static gboolean on_root_button_release(GtkWidget* widget, GdkEventButton* event, gpointer data);
     static gboolean on_delete(GtkWidget* widget, GdkEvent* event, gpointer data);
 };
 

@@ -5,7 +5,10 @@
 
 #include <gtk/gtk.h>
 
+#include <atomic>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace ksudoku {
@@ -24,6 +27,7 @@ struct Rect {
 class SudokuApp {
 public:
     SudokuApp(int argc, char** argv, std::string app_dir);
+    ~SudokuApp();
     int run();
 
 private:
@@ -34,6 +38,10 @@ private:
     };
 
     GtkWidget* window_ = nullptr;
+    GtkWidget* event_box_ = nullptr;
+    GtkWidget* canvas_ = nullptr;
+    int screen_width_ = 0;
+    int screen_height_ = 0;
 
     std::string app_dir_;
     SaveManager save_;
@@ -52,13 +60,12 @@ private:
     std::vector<Rect> modal_buttons_;
     std::vector<int> modal_values_;
 
-    guint32 last_tap_time_ = 0;
-    double last_tap_x_ = -10000.0;
-    double last_tap_y_ = -10000.0;
-
     void initialize_state();
     void create_window();
-    void configure_window_after_show();
+    void configure_input_widgets();
+    void start_evdev_reader();
+    void stop_evdev_reader();
+    void evdev_loop();
     void save_now();
     void new_game(int size, Difficulty difficulty);
 
@@ -69,16 +76,29 @@ private:
     void draw_modal(cairo_t* cr, int width, int height);
     void draw_completion_banner(cairo_t* cr, int width, int height);
 
+    guint32 last_tap_time_ = 0;
+    double last_tap_x_ = -10000.0;
+    double last_tap_y_ = -10000.0;
+
+    std::atomic<bool> evdev_running_{false};
+    std::thread evdev_thread_;
+    std::mutex evdev_schedule_mutex_;
+    long evdev_last_tap_ms_ = 0;
+
     void handle_tap(double x, double y);
+    void handle_tap_from_evdev(double x, double y);
     void handle_modal_tap(double x, double y);
     void handle_board_tap(double x, double y);
     bool should_process_button_event(GdkEventButton* event);
-    void log_button_event(const char* phase, GdkEventButton* event);
+    void log_button_event(const char* source, const char* phase, GdkEventButton* event);
     void queue_redraw();
 
+    static gboolean on_evdev_tap_idle(gpointer data);
     static gboolean on_expose(GtkWidget* widget, GdkEventExpose* event, gpointer data);
     static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer data);
     static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer data);
+    static gboolean on_root_button_press(GtkWidget* widget, GdkEventButton* event, gpointer data);
+    static gboolean on_root_button_release(GtkWidget* widget, GdkEventButton* event, gpointer data);
     static gboolean on_delete(GtkWidget* widget, GdkEvent* event, gpointer data);
 };
 

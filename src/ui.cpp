@@ -743,13 +743,31 @@ void SudokuApp::handle_tap(double x, double y) {
     }
 
     if (board_rect_.contains(x, y)) {
+        // If a number highlight is active, tapping an empty board cell should
+        // behave like tapping empty space: clear the highlight instead of
+        // immediately entering the currently selected number. This gives the
+        // user a reliable way to dismiss highlights without changing the puzzle.
+        const int n = state_.spec.size;
+        const double cell = board_rect_.w / n;
+        const int col = std::min(n - 1, std::max(0, static_cast<int>((x - board_rect_.x) / cell)));
+        const int row = std::min(n - 1, std::max(0, static_cast<int>((y - board_rect_.y) / cell)));
+        const int idx = row * n + col;
+        if (state_.highlight_number != 0 && state_.visible_value(idx) == 0) {
+            state_.highlight_number = 0;
+            state_.selected_cell = -1;
+            queue_redraw();
+            return;
+        }
+
         handle_board_tap(x, y);
         return;
     }
 
-    state_.highlight_number = 0;
-    state_.selected_cell = -1;
-    queue_redraw();
+    if (state_.highlight_number != 0 || state_.selected_cell != -1) {
+        state_.highlight_number = 0;
+        state_.selected_cell = -1;
+        queue_redraw();
+    }
 }
 
 void SudokuApp::handle_modal_tap(double x, double y) {

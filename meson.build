@@ -10,6 +10,7 @@ project(
 )
 
 gtk2 = dependency('gtk+-2.0', required: true)
+threads = dependency('threads', required: true)
 inc = include_directories('src')
 
 cpp = meson.get_compiler('cpp')
@@ -31,7 +32,7 @@ executable(
   'kindlesudoku',
   sources,
   include_directories: inc,
-  dependencies: [gtk2],
+  dependencies: [gtk2, threads],
   link_args: static_runtime_link_args,
   install: true
 )
@@ -40,6 +41,7 @@ engine_smoke = executable(
   'engine_smoke',
   files('tests/engine_smoke.cpp', 'src/sudoku_engine.cpp'),
   include_directories: inc,
+  dependencies: [threads],
   link_args: static_runtime_link_args,
   install: false
 )

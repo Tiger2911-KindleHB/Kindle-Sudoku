@@ -25,6 +25,8 @@ jobs:
             curl \
             file \
             git \
+            libarchive-dev \
+            nettle-dev \
             meson \
             ninja-build \
             pkg-config \
@@ -41,7 +43,7 @@ jobs:
           path: |
             ~/x-tools/arm-kindlehf-linux-gnueabihf
             ~/kindle-sdk
-          key: kindlesudoku-kindlehf-prebuilt-only-v3
+          key: kindlesudoku-kindlehf-prebuilt-only-v4
 
       - name: Normalize script permissions
         run: |

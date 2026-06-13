@@ -7,7 +7,6 @@ TOOLCHAIN_DIR="$HOME/x-tools/arm-kindlehf-linux-gnueabihf"
 TOOLCHAIN_BIN="$TOOLCHAIN_DIR/bin/arm-kindlehf-linux-gnueabihf-g++"
 CROSS_FILE="$TOOLCHAIN_DIR/meson-crosscompile.txt"
 SDK_DIR="$HOME/kindle-sdk"
-SDK_MARKER="$TOOLCHAIN_DIR/.kindle-sdk-installed"
 TOOLCHAIN_URL="https://github.com/koreader/koxtoolchain/releases/download/2025.05/kindlehf.tar.gz"
 
 cd "$ROOT_DIR"
@@ -42,10 +41,12 @@ fi
 
 # Kindle SDK adds Kindle libraries/pkg-config data on top of the existing prebuilt toolchain.
 # It should not build the cross-toolchain from source.
-if [[ ! -f "$SDK_MARKER" || ! -f "$CROSS_FILE" ]]; then
+if [[ ! -f "$CROSS_FILE" ]]; then
   chmod +x "$SDK_DIR/gen-sdk.sh"
   (cd "$SDK_DIR" && ./gen-sdk.sh "$TARGET")
-  touch "$SDK_MARKER"
+  # gen-sdk uses sudo/mount internally and can leave parts of x-tools root-owned.
+  # Normalize ownership so GitHub cache and later build steps can read/write cleanly.
+  sudo chown -R "$USER":"$USER" "$TOOLCHAIN_DIR" "$SDK_DIR" || true
 fi
 
 if [[ ! -f "$CROSS_FILE" ]]; then

@@ -34,7 +34,16 @@ private:
     enum class ModalMode {
         None,
         ChooseSize,
-        ChooseDifficulty
+        ChooseDifficulty,
+        Complete,
+        Stats
+    };
+
+    struct StatsRecord {
+        int size = 9;
+        Difficulty difficulty = Difficulty::Normal;
+        long seconds = 0;
+        std::time_t completed_at = 0;
     };
 
     GtkWidget* window_ = nullptr;
@@ -51,6 +60,7 @@ private:
     ModalMode modal_ = ModalMode::None;
     int pending_size_ = 9;
     Rect new_button_;
+    Rect stats_button_;
     Rect exit_button_;
     Rect board_rect_;
     Rect normal_button_;
@@ -59,8 +69,15 @@ private:
     std::vector<int> number_button_values_;
     std::vector<Rect> modal_buttons_;
     std::vector<int> modal_values_;
+    std::vector<StatsRecord> stats_;
+    int stats_selected_size_ = 9;
+    bool completion_recorded_for_current_puzzle_ = false;
 
     void initialize_state();
+    void load_stats();
+    void save_stats();
+    void record_completion_if_needed();
+    long current_elapsed_seconds() const;
     void create_window();
     void configure_input_widgets();
     void start_evdev_reader();
@@ -74,6 +91,8 @@ private:
     void draw_board(cairo_t* cr, int width, int height);
     void draw_controls(cairo_t* cr, int width, int height);
     void draw_modal(cairo_t* cr, int width, int height);
+    void draw_completion_popup(cairo_t* cr, int width, int height);
+    void draw_stats_modal(cairo_t* cr, int width, int height);
     void draw_completion_banner(cairo_t* cr, int width, int height);
 
     guint32 last_tap_time_ = 0;

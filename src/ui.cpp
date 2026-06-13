@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <fstream>
 #include <sstream>
 #include <stdexcept>
 
@@ -87,11 +88,13 @@ std::string digit_label(int value) {
 
 std::string time_label(long seconds) {
     if (seconds < 0) seconds = 0;
-    const long minutes = seconds / 60;
-    const long hours = minutes / 60;
+    const long hours = seconds / 3600;
+    const long minutes = (seconds % 3600) / 60;
+    const long secs = seconds % 60;
     std::ostringstream out;
-    if (hours > 0) out << hours << "h " << (minutes % 60) << "m";
-    else out << minutes << "m";
+    if (hours > 0) out << hours << "h " << minutes << "m " << secs << "s";
+    else if (minutes > 0) out << minutes << "m " << secs << "s";
+    else out << secs << "s";
     return out.str();
 }
 
@@ -102,6 +105,33 @@ void append_app_log(const std::string& app_dir, const std::string& message) {
     const std::time_t now = std::time(nullptr);
     std::fprintf(fp, "%ld %s\n", static_cast<long>(now), message.c_str());
     std::fclose(fp);
+}
+
+int difficulty_rank(Difficulty difficulty) {
+    switch (difficulty) {
+        case Difficulty::Easy: return 0;
+        case Difficulty::Normal: return 1;
+        case Difficulty::Hard: return 2;
+        case Difficulty::Expert: return 3;
+    }
+    return 1;
+}
+
+Difficulty difficulty_from_rank(int value) {
+    if (value == 0) return Difficulty::Easy;
+    if (value == 2) return Difficulty::Hard;
+    if (value == 3) return Difficulty::Expert;
+    return Difficulty::Normal;
+}
+
+std::string size_label_for_value(int size) {
+    try {
+        return spec_for_size(size).label;
+    } catch (...) {
+        std::ostringstream out;
+        out << size << "x" << size;
+        return out.str();
+    }
 }
 
 int kindle_input_event_mask() {
@@ -238,6 +268,105 @@ void SudokuApp::initialize_state() {
         new_game(9, Difficulty::Normal);
     }
     state_.refresh_incorrect_flags();
+    completion_recorded_for_current_puzzle_ = state_.is_complete();
+    stats_selected_size_ = state_.spec.size;
+    load_stats();
+}
+
+long SudokuApp::current_elapsed_seconds() const {
+    const std::time_t now = std::time(nullptr);
+    long elapsed = state_.elapsed_seconds;
+    if (state_.session_started > 0 && now >= state_.session_started) {
+        elapsed += static_cast<long>(now - state_.session_started);
+    }
+    return std::max(0L, elapsed);
+}
+
+void SudokuApp::load_stats() {
+    stats_.clear();
+    const std::string path = app_dir_ + "/data/stats.dat";
+    std::ifstream in(path.c_str());
+    if (!in) return;
+
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        std::stringstream ss(line);
+        std::string size_text;
+        std::string difficulty_text;
+        std::string seconds_text;
+        std::string completed_text;
+        if (!std::getline(ss, size_text, '|')) continue;
+        if (!std::getline(ss, difficulty_text, '|')) continue;
+        if (!std::getline(ss, seconds_text, '|')) continue;
+        if (!std::getline(ss, completed_text, '|')) completed_text = "0";
+
+        StatsRecord record;
+        record.size = std::atoi(size_text.c_str());
+        record.difficulty = difficulty_from_rank(std::atoi(difficulty_text.c_str()));
+        record.seconds = std::max(0, std::atoi(seconds_text.c_str()));
+        record.completed_at = static_cast<std::time_t>(std::atol(completed_text.c_str()));
+        if (record.size == 4 || record.size == 6 || record.size == 9) {
+            stats_.push_back(record);
+        }
+    }
+
+    std::sort(stats_.begin(), stats_.end(), [](const StatsRecord& a, const StatsRecord& b) {
+        if (a.size != b.size) return a.size < b.size;
+        if (a.seconds != b.seconds) return a.seconds < b.seconds;
+        return difficulty_rank(a.difficulty) > difficulty_rank(b.difficulty);
+    });
+}
+
+void SudokuApp::save_stats() {
+    const std::string path = app_dir_ + "/data/stats.dat";
+    const std::string tmp = path + ".tmp";
+    std::ofstream out(tmp.c_str(), std::ios::trunc);
+    if (!out) return;
+
+    out << "# Kindle Sudoku stats v1\n";
+    for (const StatsRecord& record : stats_) {
+        out << record.size << "|"
+            << difficulty_rank(record.difficulty) << "|"
+            << record.seconds << "|"
+            << static_cast<long>(record.completed_at) << "\n";
+    }
+    out.close();
+    if (out) std::rename(tmp.c_str(), path.c_str());
+    else std::remove(tmp.c_str());
+}
+
+void SudokuApp::record_completion_if_needed() {
+    if (completion_recorded_for_current_puzzle_) return;
+    if (!state_.is_complete()) return;
+
+    StatsRecord record;
+    record.size = state_.spec.size;
+    record.difficulty = state_.difficulty;
+    record.seconds = current_elapsed_seconds();
+    record.completed_at = std::time(nullptr);
+    stats_.push_back(record);
+    completion_recorded_for_current_puzzle_ = true;
+
+    std::sort(stats_.begin(), stats_.end(), [](const StatsRecord& a, const StatsRecord& b) {
+        if (a.size != b.size) return a.size < b.size;
+        if (difficulty_rank(a.difficulty) != difficulty_rank(b.difficulty)) {
+            return difficulty_rank(a.difficulty) < difficulty_rank(b.difficulty);
+        }
+        if (a.seconds != b.seconds) return a.seconds < b.seconds;
+        return a.completed_at < b.completed_at;
+    });
+
+    std::vector<StatsRecord> trimmed;
+    for (const StatsRecord& item : stats_) {
+        int kept_for_bucket = 0;
+        for (const StatsRecord& existing : trimmed) {
+            if (existing.size == item.size && existing.difficulty == item.difficulty) ++kept_for_bucket;
+        }
+        if (kept_for_bucket < 10) trimmed.push_back(item);
+    }
+    stats_.swap(trimmed);
+    save_stats();
 }
 
 void SudokuApp::create_window() {
@@ -487,6 +616,8 @@ void SudokuApp::save_now() {
 void SudokuApp::new_game(int size, Difficulty difficulty) {
     GeneratedPuzzle puzzle = engine_.generate(size, difficulty);
     state_.reset_from_puzzle(puzzle);
+    completion_recorded_for_current_puzzle_ = false;
+    stats_selected_size_ = size;
     save_now();
 }
 
@@ -500,7 +631,7 @@ void SudokuApp::draw(cairo_t* cr, int width, int height) {
     draw_top_bar(cr, width, height);
     draw_board(cr, width, height);
     draw_controls(cr, width, height);
-    if (state_.is_complete()) {
+    if (state_.is_complete() && modal_ == ModalMode::None) {
         draw_completion_banner(cr, width, height);
     }
     if (modal_ != ModalMode::None) {
@@ -512,26 +643,30 @@ void SudokuApp::draw_top_bar(cairo_t* cr, int width, int height) {
     const double button_h = std::max(46.0, std::min(68.0, height * 0.075));
     const double button_w = std::max(88.0, std::min(140.0, width * 0.16));
     const double margin = std::max(10.0, width * 0.018);
+    const double top_gap = std::max(8.0, width * 0.012);
 
     new_button_ = Rect{margin, margin, button_w, button_h};
     exit_button_ = Rect{width - margin - button_w, margin, button_w, button_h};
+    stats_button_ = Rect{exit_button_.x - top_gap - button_w, margin, button_w, button_h};
 
     stroke_rect(cr, new_button_, 0.0, 3.0);
+    stroke_rect(cr, stats_button_, 0.0, 3.0);
     stroke_rect(cr, exit_button_, 0.0, 3.0);
     draw_text(cr, "New", new_button_, button_h * 0.43, true, 0.0);
+    draw_text(cr, "Stats", stats_button_, button_h * 0.39, true, 0.0);
     draw_text(cr, "Exit", exit_button_, button_h * 0.43, true, 0.0);
 
     std::ostringstream title;
     title << state_.spec.label << "  " << difficulty_to_string(state_.difficulty)
-          << "  " << time_label(state_.elapsed_seconds + (std::time(nullptr) - state_.session_started));
-    Rect title_rect{new_button_.x + new_button_.w + 8, margin, exit_button_.x - new_button_.x - new_button_.w - 16, button_h};
-    draw_text(cr, title.str(), title_rect, std::max(20.0, button_h * 0.34), true, 0.0);
+          << "  " << time_label(current_elapsed_seconds());
+    Rect title_rect{new_button_.x + new_button_.w + 8, margin, stats_button_.x - new_button_.x - new_button_.w - 16, button_h};
+    draw_text(cr, title.str(), title_rect, std::max(18.0, button_h * 0.32), true, 0.0);
 }
 
 void SudokuApp::draw_board(cairo_t* cr, int width, int height) {
     const int n = state_.spec.size;
     const double top_reserved = std::max(74.0, height * 0.095);
-    const double bottom_reserved = std::max(158.0, height * 0.22);
+    const double bottom_reserved = std::max(245.0, height * 0.30);
     double max_board = std::min(width * 0.94, height - top_reserved - bottom_reserved);
     max_board = std::max(220.0, max_board);
     double cell = std::floor(max_board / n);
@@ -592,7 +727,7 @@ void SudokuApp::draw_board(cairo_t* cr, int width, int height) {
 
 void SudokuApp::draw_controls(cairo_t* cr, int width, int height) {
     const double bottom_margin = std::max(12.0, height * 0.02);
-    const double number_h = std::max(48.0, std::min(72.0, height * 0.075));
+    const double number_h = std::max(92.0, std::min(132.0, height * 0.135));
     const double mode_h = std::max(46.0, std::min(66.0, height * 0.07));
     const double gap = std::max(8.0, width * 0.012);
 
@@ -619,8 +754,8 @@ void SudokuApp::draw_controls(cairo_t* cr, int width, int height) {
     }
 
     const int count = static_cast<int>(visible_numbers.size());
-    const double candidate_w = std::min(70.0, (width * 0.92 - gap * (count - 1)) / count);
-    const double button_w = std::max(42.0, candidate_w);
+    const double candidate_w = std::min(128.0, (width * 0.96 - gap * (count - 1)) / count);
+    const double button_w = std::max(76.0, candidate_w);
     const double total_w = count * button_w + (count - 1) * gap;
     double x = std::floor((width - total_w) / 2.0);
     const double y = height - bottom_margin - number_h;
@@ -630,7 +765,7 @@ void SudokuApp::draw_controls(cairo_t* cr, int width, int height) {
         const bool active = value == state_.selected_number;
         if (active) fill_rect(cr, r, 0.0);
         stroke_rect(cr, r, 0.0, 3.0);
-        draw_text(cr, digit_label(value), r, number_h * 0.48, true, active ? 1.0 : 0.0);
+        draw_text(cr, digit_label(value), r, number_h * 0.52, true, active ? 1.0 : 0.0);
         number_buttons_.push_back(r);
         number_button_values_.push_back(value);
         x += button_w + gap;
@@ -640,6 +775,15 @@ void SudokuApp::draw_controls(cairo_t* cr, int width, int height) {
 void SudokuApp::draw_modal(cairo_t* cr, int width, int height) {
     modal_buttons_.clear();
     modal_values_.clear();
+
+    if (modal_ == ModalMode::Complete) {
+        draw_completion_popup(cr, width, height);
+        return;
+    }
+    if (modal_ == ModalMode::Stats) {
+        draw_stats_modal(cr, width, height);
+        return;
+    }
 
     fill_rect(cr, Rect{0, 0, static_cast<double>(width), static_cast<double>(height)}, 0.78);
     const double box_w = std::min(width * 0.86, 620.0);
@@ -688,6 +832,114 @@ void SudokuApp::draw_modal(cairo_t* cr, int width, int height) {
     modal_values_.push_back(-1);
 }
 
+void SudokuApp::draw_completion_popup(cairo_t* cr, int width, int height) {
+    fill_rect(cr, Rect{0, 0, static_cast<double>(width), static_cast<double>(height)}, 0.78);
+
+    const double box_w = std::min(width * 0.88, 680.0);
+    const double box_h = std::min(height * 0.58, 430.0);
+    Rect box{std::floor((width - box_w) / 2.0), std::floor((height - box_h) / 2.0), box_w, box_h};
+    fill_rect(cr, box, 1.0);
+    stroke_rect(cr, box, 0.0, 5.0);
+
+    Rect title{box.x + 24, box.y + 20, box.w - 48, 62};
+    draw_text(cr, "Congratulations", title, 36.0, true, 0.0);
+
+    std::ostringstream details;
+    details << state_.spec.label << "  |  "
+            << difficulty_to_string(state_.difficulty) << "  |  "
+            << time_label(current_elapsed_seconds());
+    Rect detail_rect{box.x + 30, title.y + title.h + 8, box.w - 60, 62};
+    draw_text(cr, details.str(), detail_rect, 25.0, true, 0.0);
+
+    Rect message{box.x + 34, detail_rect.y + detail_rect.h + 4, box.w - 68, 52};
+    draw_text(cr, "Puzzle complete. Your time has been saved to Stats.", message, 21.0, false, 0.0);
+
+    const double button_h = 68.0;
+    const double button_gap = 22.0;
+    const double button_w = (box.w - 80.0 - button_gap) / 2.0;
+    const double y = box.y + box.h - button_h - 30.0;
+
+    Rect new_puzzle{box.x + 40.0, y, button_w, button_h};
+    Rect close{new_puzzle.x + new_puzzle.w + button_gap, y, button_w, button_h};
+
+    stroke_rect(cr, new_puzzle, 0.0, 3.0);
+    stroke_rect(cr, close, 0.0, 3.0);
+    draw_text(cr, "New Puzzle", new_puzzle, 28.0, true, 0.0);
+    draw_text(cr, "Close", close, 28.0, true, 0.0);
+
+    modal_buttons_.push_back(new_puzzle);
+    modal_values_.push_back(1000);
+    modal_buttons_.push_back(close);
+    modal_values_.push_back(-1);
+}
+
+void SudokuApp::draw_stats_modal(cairo_t* cr, int width, int height) {
+    fill_rect(cr, Rect{0, 0, static_cast<double>(width), static_cast<double>(height)}, 0.78);
+
+    const double box_w = std::min(width * 0.92, 760.0);
+    const double box_h = std::min(height * 0.82, 760.0);
+    Rect box{std::floor((width - box_w) / 2.0), std::floor((height - box_h) / 2.0), box_w, box_h};
+    fill_rect(cr, box, 1.0);
+    stroke_rect(cr, box, 0.0, 5.0);
+
+    Rect title{box.x + 24, box.y + 18, box.w - 48, 54};
+    draw_text(cr, "Stats", title, 34.0, true, 0.0);
+
+    const int sizes[] = {4, 6, 9};
+    const double tab_gap = 10.0;
+    const double tab_h = 58.0;
+    const double tab_w = (box.w - 80.0 - tab_gap * 2.0) / 3.0;
+    double tab_x = box.x + 40.0;
+    const double tab_y = title.y + title.h + 10.0;
+    for (int size : sizes) {
+        Rect tab{tab_x, tab_y, tab_w, tab_h};
+        const bool active = size == stats_selected_size_;
+        if (active) fill_rect(cr, tab, 0.0);
+        stroke_rect(cr, tab, 0.0, 3.0);
+        draw_text(cr, size_label_for_value(size), tab, 24.0, true, active ? 1.0 : 0.0);
+        modal_buttons_.push_back(tab);
+        modal_values_.push_back(size);
+        tab_x += tab_w + tab_gap;
+    }
+
+    Rect header{box.x + 40.0, tab_y + tab_h + 22.0, box.w - 80.0, 38.0};
+    draw_text(cr, "Difficulty        Time", header, 23.0, true, 0.0, PANGO_ALIGN_LEFT);
+
+    std::vector<StatsRecord> rows;
+    for (const StatsRecord& record : stats_) {
+        if (record.size == stats_selected_size_) rows.push_back(record);
+    }
+    std::sort(rows.begin(), rows.end(), [](const StatsRecord& a, const StatsRecord& b) {
+        if (a.seconds != b.seconds) return a.seconds < b.seconds;
+        return difficulty_rank(a.difficulty) > difficulty_rank(b.difficulty);
+    });
+
+    double row_y = header.y + header.h + 8.0;
+    const double row_h = 42.0;
+    int shown = 0;
+    for (const StatsRecord& record : rows) {
+        if (shown >= 10) break;
+        std::ostringstream line;
+        line << (shown + 1) << ".  " << difficulty_to_string(record.difficulty)
+             << "        " << time_label(record.seconds);
+        Rect row{box.x + 46.0, row_y, box.w - 92.0, row_h};
+        draw_text(cr, line.str(), row, 22.0, false, 0.0, PANGO_ALIGN_LEFT);
+        row_y += row_h;
+        ++shown;
+    }
+
+    if (shown == 0) {
+        Rect empty{box.x + 46.0, row_y + 14.0, box.w - 92.0, 58.0};
+        draw_text(cr, "No completed puzzles yet.", empty, 24.0, false, 0.0);
+    }
+
+    Rect close{box.x + 40.0, box.y + box.h - 76.0, box.w - 80.0, 52.0};
+    stroke_rect(cr, close, 0.0, 2.0);
+    draw_text(cr, "Close", close, 24.0, true, 0.0);
+    modal_buttons_.push_back(close);
+    modal_values_.push_back(-1);
+}
+
 void SudokuApp::draw_completion_banner(cairo_t* cr, int width, int height) {
     const double banner_w = std::min(width * 0.70, 520.0);
     const double banner_h = 62.0;
@@ -706,6 +958,13 @@ void SudokuApp::handle_tap(double x, double y) {
     if (new_button_.contains(x, y)) {
         modal_ = ModalMode::ChooseSize;
         state_.highlight_number = 0;
+        queue_redraw();
+        return;
+    }
+
+    if (stats_button_.contains(x, y)) {
+        stats_selected_size_ = state_.spec.size;
+        modal_ = ModalMode::Stats;
         queue_redraw();
         return;
     }
@@ -735,7 +994,6 @@ void SudokuApp::handle_tap(double x, double y) {
     for (std::size_t i = 0; i < number_buttons_.size(); ++i) {
         if (number_buttons_[i].contains(x, y)) {
             state_.selected_number = number_button_values_[i];
-            state_.highlight_number = 0;
             save_now();
             queue_redraw();
             return;
@@ -774,8 +1032,26 @@ void SudokuApp::handle_modal_tap(double x, double y) {
     for (std::size_t i = 0; i < modal_buttons_.size(); ++i) {
         if (!modal_buttons_[i].contains(x, y)) continue;
         const int value = modal_values_[i];
+
         if (value < 0) {
             modal_ = ModalMode::None;
+            queue_redraw();
+            return;
+        }
+
+        if (modal_ == ModalMode::Complete) {
+            if (value == 1000) {
+                pending_size_ = state_.spec.size;
+                modal_ = ModalMode::ChooseSize;
+            }
+            queue_redraw();
+            return;
+        }
+
+        if (modal_ == ModalMode::Stats) {
+            if (value == 4 || value == 6 || value == 9) {
+                stats_selected_size_ = value;
+            }
             queue_redraw();
             return;
         }
@@ -847,6 +1123,13 @@ void SudokuApp::handle_board_tap(double x, double y) {
     if (state_.selected_number > 0 && state_.number_is_complete(state_.selected_number)) {
         state_.selected_number = 0;
     }
+
+    if (state_.is_complete()) {
+        state_.highlight_number = 0;
+        record_completion_if_needed();
+        modal_ = ModalMode::Complete;
+    }
+
     save_now();
     queue_redraw();
 }

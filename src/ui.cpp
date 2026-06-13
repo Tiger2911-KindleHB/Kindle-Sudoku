@@ -54,12 +54,11 @@ void draw_text(cairo_t* cr,
     int text_h = 0;
     pango_layout_get_pixel_size(layout, &text_w, &text_h);
 
-    double x = bounds.x;
-    if (alignment == PANGO_ALIGN_CENTER) {
-        x = bounds.x + (bounds.w - text_w) / 2.0;
-    } else if (alignment == PANGO_ALIGN_RIGHT) {
-        x = bounds.x + bounds.w - text_w;
-    }
+    // Pango performs the horizontal alignment inside the layout width we set
+    // above.  Do not also offset the Cairo origin for centered/right text, or
+    // the text is effectively aligned twice and appears pushed toward the
+    // right edge of buttons/cells on the Kindle.
+    const double x = bounds.x;
     const double y = bounds.y + (bounds.h - text_h) / 2.0;
 
     set_gray(cr, gray);
@@ -139,6 +138,8 @@ int SudokuApp::run() {
     g_timeout_add(750, raise_window_once, window_);
     g_timeout_add(1500, raise_window_once, window_);
 
+    if (canvas_) gtk_widget_grab_focus(canvas_);
+
     append_app_log(app_dir_, "run: enter gtk_main");
     gtk_main();
     append_app_log(app_dir_, "run: exit gtk_main");
@@ -164,11 +165,15 @@ void SudokuApp::create_window() {
     canvas_ = gtk_drawing_area_new();
     gtk_widget_set_size_request(canvas_, gdk_screen_width(), gdk_screen_height());
     gtk_widget_set_app_paintable(canvas_, TRUE);
-    gtk_widget_add_events(canvas_, GDK_BUTTON_PRESS_MASK);
+    gtk_widget_set_can_focus(canvas_, TRUE);
+    gtk_widget_set_events(canvas_, gtk_widget_get_events(canvas_) |
+                                   GDK_BUTTON_PRESS_MASK |
+                                   GDK_BUTTON_RELEASE_MASK);
     gtk_container_add(GTK_CONTAINER(window_), canvas_);
 
     g_signal_connect(G_OBJECT(canvas_), "expose-event", G_CALLBACK(SudokuApp::on_expose), this);
     g_signal_connect(G_OBJECT(canvas_), "button-press-event", G_CALLBACK(SudokuApp::on_button_press), this);
+    g_signal_connect(G_OBJECT(canvas_), "button-release-event", G_CALLBACK(SudokuApp::on_button_release), this);
     g_signal_connect(G_OBJECT(window_), "delete-event", G_CALLBACK(SudokuApp::on_delete), this);
     g_signal_connect(G_OBJECT(window_), "destroy", G_CALLBACK(gtk_main_quit), nullptr);
 }
@@ -527,6 +532,28 @@ void SudokuApp::handle_board_tap(double x, double y) {
     queue_redraw();
 }
 
+bool SudokuApp::should_process_button_event(GdkEventButton* event) {
+    if (!event || event->button != 1) return false;
+
+    const double dx = event->x - last_tap_x_;
+    const double dy = event->y - last_tap_y_;
+    const double dist2 = dx * dx + dy * dy;
+
+    // Some Kindle/X input stacks emit both press and release for the same tap,
+    // while others only deliver one of them to GTK.  Accept either event, but
+    // collapse a press/release pair into one logical tap so modal buttons and
+    // board cells do not process twice.
+    if (last_tap_time_ != 0 && event->time >= last_tap_time_ &&
+        event->time - last_tap_time_ < 700 && dist2 < 144.0) {
+        return false;
+    }
+
+    last_tap_time_ = event->time;
+    last_tap_x_ = event->x;
+    last_tap_y_ = event->y;
+    return true;
+}
+
 void SudokuApp::queue_redraw() {
     if (canvas_) gtk_widget_queue_draw(canvas_);
 }
@@ -542,8 +569,15 @@ gboolean SudokuApp::on_expose(GtkWidget* widget, GdkEventExpose*, gpointer data)
 }
 
 gboolean SudokuApp::on_button_press(GtkWidget*, GdkEventButton* event, gpointer data) {
-    if (event->button != 1) return FALSE;
     SudokuApp* app = static_cast<SudokuApp*>(data);
+    if (!app->should_process_button_event(event)) return FALSE;
+    app->handle_tap(event->x, event->y);
+    return TRUE;
+}
+
+gboolean SudokuApp::on_button_release(GtkWidget*, GdkEventButton* event, gpointer data) {
+    SudokuApp* app = static_cast<SudokuApp*>(data);
+    if (!app->should_process_button_event(event)) return FALSE;
     app->handle_tap(event->x, event->y);
     return TRUE;
 }

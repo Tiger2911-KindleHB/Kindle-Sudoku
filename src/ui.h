@@ -65,13 +65,19 @@ private:
     void draw_modal(cairo_t* cr, int width, int height);
     void draw_completion_banner(cairo_t* cr, int width, int height);
 
+    guint32 last_tap_time_ = 0;
+    double last_tap_x_ = -10000.0;
+    double last_tap_y_ = -10000.0;
+
     void handle_tap(double x, double y);
     void handle_modal_tap(double x, double y);
     void handle_board_tap(double x, double y);
+    bool should_process_button_event(GdkEventButton* event);
     void queue_redraw();
 
     static gboolean on_expose(GtkWidget* widget, GdkEventExpose* event, gpointer data);
     static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer data);
+    static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer data);
     static gboolean on_delete(GtkWidget* widget, GdkEvent* event, gpointer data);
 };
 

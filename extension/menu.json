@@ -3,13 +3,9 @@
     {
       "name": "Kindle Sudoku",
       "priority": 0,
-      "items": [
-        {
-          "name": "Start",
-          "priority": 0,
-          "action": "bin/start.sh"
-        }
-      ]
+      "action": "/mnt/us/extensions/kindlesudoku/bin/start.sh",
+      "status": false,
+      "refresh": false
     }
   ]
 }

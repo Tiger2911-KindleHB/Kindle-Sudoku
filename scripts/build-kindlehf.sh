@@ -54,6 +54,17 @@ if [[ ! -f "$CROSS_FILE" ]]; then
   exit 1
 fi
 
-meson setup --wipe --cross-file "$CROSS_FILE" builddir_kindlehf
+# Meson --wipe only works if the directory is already a valid Meson build tree.
+# GitHub runners usually start clean, so remove any stale partial directory and run a normal setup.
+if [[ -d builddir_kindlehf && ! -d builddir_kindlehf/meson-info ]]; then
+  rm -rf builddir_kindlehf
+fi
+
+if [[ -d builddir_kindlehf ]]; then
+  meson setup --wipe --cross-file "$CROSS_FILE" builddir_kindlehf
+else
+  meson setup --cross-file "$CROSS_FILE" builddir_kindlehf
+fi
+
 meson compile -C builddir_kindlehf
 bash ./scripts/package-kual.sh ./builddir_kindlehf/kindlesudoku

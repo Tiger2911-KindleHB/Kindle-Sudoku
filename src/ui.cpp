@@ -213,7 +213,7 @@ void SudokuApp::configure_input_widgets() {
         gtk_widget_add_events(widget, kindle_input_event_mask());
         GdkWindow* gdk_window = gtk_widget_get_window(widget);
         if (gdk_window) {
-            gdk_window_set_events(gdk_window, gdk_window_get_events(gdk_window) | kindle_input_event_mask());
+            gdk_window_set_events(gdk_window, static_cast<GdkEventMask>(gdk_window_get_events(gdk_window) | kindle_input_event_mask()));
         }
     }
     if (event_box_) gtk_widget_grab_focus(event_box_);

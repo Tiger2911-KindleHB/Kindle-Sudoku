@@ -1,129 +1,256 @@
 # Kindle Sudoku
 
-Native C++ / GTK2 Sudoku for jailbroken Kindle devices, packaged as a KUAL extension and tuned for E Ink readability.
+A native Sudoku application designed specifically for jailbroken Kindle devices and E-Ink displays.
 
-Primary target: **Kindle Paperwhite 12th Generation, firmware 5.17.x, kindlehf**.
+Kindle Sudoku is built to feel like a clean, focused, Kindle-native puzzle app rather than a generic mobile Sudoku port. It uses a high-contrast black-and-white interface, large touch targets, persistent input modes, automatic save/restore, procedural puzzle generation, and a KUAL-friendly install package.
 
-## Current V1 Feature Set
+## Features
 
-- Native Kindle/KUAL application layout
-- High-contrast black-and-white UI
-- Full-screen GTK2 drawing surface
-- Procedural Sudoku generation
-- Unique-solution enforcement
-- 4x4 Mini puzzles
-- 6x6 Small puzzles
-- 9x9 Classic puzzles
-- Easy / Normal / Hard / Expert difficulty selection
-- Top-left **New** button
-- Top-right **Exit** button
-- Automatic save and restore
-- Persistent Normal mode
-- Persistent Pencil mode
-- Persistent number selection
-- Erase tool using `□`
-- One pencil mark per cell, drawn in the upper-right corner
-- Incorrect entries remain visible and receive an X marker
-- Tapping a filled cell highlights matching visible numbers with black/white inversion
-- Completed numbers auto-hide from the bottom number bar
-- Large touch targets and automatic scaling across screen sizes
+### Kindle-Optimized Interface
 
-## Repository Layout
+- Native Kindle application packaged as a KUAL extension
+- High-contrast black-and-white UI for E-Ink readability
+- Large board numbers, buttons, and touch targets
+- Centered Sudoku board with clean grid rendering
+- Enlarged bottom number bar for easier touch input
+- Minimal visual clutter and distraction-free gameplay
+- Designed for Kindle Paperwhite 6 / modern jailbroken Kindle devices
+
+### Puzzle Sizes
+
+Version 1 supports three Sudoku formats:
+
+- **4x4 Mini** — digits 1–4
+- **6x6 Small** — digits 1–6
+- **9x9 Classic** — digits 1–9
+
+The interface automatically scales the board and controls for the selected puzzle size.
+
+### Difficulty Levels
+
+Each puzzle size supports four difficulty levels:
+
+- Easy
+- Normal
+- Hard
+- Expert
+
+Puzzles are procedurally generated and validated to ensure they have a valid solution.
+
+### Gameplay Controls
+
+- **New** — start a new puzzle by selecting size and difficulty
+- **Check** — scan the current puzzle for invalid entries
+- **Stats** — view fastest completion times by puzzle type and difficulty
+- **Exit** — save progress and close the application
+- **Ink** — enter final numbers into cells
+- **Pencil** — place small pencil-style candidate marks
+- **Erase** — clear user-entered numbers or pencil marks
+
+Original puzzle givens cannot be edited or erased.
+
+### Persistent Input Behavior
+
+Kindle Sudoku is designed to reduce unnecessary taps on E-Ink hardware.
+
+- The selected number remains active until changed
+- The selected input mode remains active until changed
+- Multiple cells can be filled using the same selected number
+- Number-bar selections do not clear active board highlights
+
+### Pencil Marks
+
+The **Pencil** mode allows a single small pencil-style mark per cell. Pencil marks are drawn smaller and lighter than final entries so they remain visually distinct from confirmed answers.
+
+### Mistake Detection
+
+Incorrect final entries are left visible but marked clearly with an X. Invalid entries do not count toward puzzle completion.
+
+The **Check** button scans the current board and reports how many invalid entries are currently present.
+
+### Number Highlighting
+
+Tapping a filled cell highlights every matching visible number on the board using an inverted black-and-white style:
+
+- Cell background becomes black
+- Number becomes white
+
+Tapping empty board space or an empty cell clears the highlight. Tapping number-bar controls does not clear the current highlight.
+
+### Auto-Hide Completed Numbers
+
+When every correct instance of a number has been completed, that number is automatically removed from the number bar.
+
+Examples:
+
+- 4x4: hide a number after 4 correct instances
+- 6x6: hide a number after 6 correct instances
+- 9x9: hide a number after 9 correct instances
+
+The count includes original givens and correct user entries. It does not include pencil marks or incorrect entries.
+
+### Completion Popup
+
+When a puzzle is completed, Kindle Sudoku displays a completion popup with:
+
+- Congratulations message
+- Puzzle size
+- Difficulty
+- Completion time
+- New Puzzle button
+- Close button
+
+### Stats and Leaderboards
+
+The Stats screen tracks fastest completion times for each puzzle size and difficulty.
+
+Stats are saved locally on the Kindle at:
 
 ```text
-.github/workflows/main.yml      GitHub Actions cloud builds
-scripts/build-kindlehf.sh       Chess-style koxtoolchain + Kindle SDK build script
-docs/                           Notes for testing and iteration
-extension/                      KUAL extension skeleton
-scripts/package-kual.sh         Builds the release zip from a compiled binary
-src/                            Application source code
-tests/engine_smoke.cpp          Generator/solver smoke test
-meson.build                     Meson build definition
+/mnt/us/extensions/kindlesudoku/data/stats.dat
 ```
 
-## Runtime Install Layout
+### Save and Restore
 
-The packaged release installs to:
+The current puzzle is automatically saved and restored.
+
+Saved state includes:
+
+- Puzzle size
+- Difficulty
+- Original givens
+- User-entered numbers
+- Pencil marks
+- Incorrect entries
+- Current board state
+- Elapsed time
+
+Save data is stored locally inside the extension data folder.
+
+## Installation
+
+Builds are distributed as a KUAL extension package.
+
+After downloading the GitHub Actions artifact, extract the final package until you have a folder named:
+
+```text
+kindlesudoku/
+```
+
+Copy that folder to your Kindle at:
 
 ```text
 /mnt/us/extensions/kindlesudoku/
-├── config.xml
-├── menu.json
-├── bin/
-│   ├── kindlesudoku
-│   └── start.sh
-└── data/
-    └── save.dat
 ```
 
-Launch path:
+Expected Kindle folder layout:
 
 ```text
-KUAL → Kindle Sudoku → Start
+/mnt/us/extensions/kindlesudoku/config.xml
+/mnt/us/extensions/kindlesudoku/menu.json
+/mnt/us/extensions/kindlesudoku/bin/start.sh
+/mnt/us/extensions/kindlesudoku/bin/kindlesudoku
 ```
 
-## GitHub Actions Build
+Launch the app from KUAL.
 
-The workflow builds on push, pull request, and manual dispatch.
+## Build System
 
-Artifacts:
+Kindle Sudoku uses the same overall workflow as the Kindle Chess project:
 
-- `kindlesudoku-kual`: Kindle KUAL release zip
-- `kindlesudoku-desktop-debug-kual`: desktop smoke-build package, useful only for UI/debug validation on Linux
+1. Source files are committed to GitHub
+2. GitHub Actions runs the Kindle build
+3. A KUAL-compatible artifact is produced
+4. The artifact is downloaded and extracted
+5. The resulting extension folder is copied to the Kindle
+6. Hardware testing is performed on the device
+7. Fixes are applied through small file patches
 
-The Kindle job follows the same KindleChess build path: koxtoolchain + Kindle SDK, target `kindlehf`, generated `~/x-tools/arm-kindlehf-linux-gnueabihf/meson-crosscompile.txt`, Meson compile, then KUAL packaging. The Stockfish/engine build step is intentionally omitted.
+The project is built with:
 
-## Local Smoke Build
+- C++17
+- GTK2
+- Meson
+- Ninja
+- KOReader/Kindle `kindlehf` toolchain
+- GitHub Actions
 
-On Ubuntu 22.04 or a matching environment:
+## GitHub Actions Artifact
 
-```bash
-sudo apt-get install -y build-essential meson ninja-build pkg-config libgtk2.0-dev zip
-./scripts/build-local.sh
-```
-
-This produces:
+The workflow produces a Kindle/KUAL artifact named:
 
 ```text
-dist/kindlesudoku-kual.zip
+kindlesudoku-kual
 ```
 
-For the actual Kindle binary, use the GitHub Actions `kindlehf` build artifact.
-
-## Testing Checklist
-
-1. Download `kindlesudoku-kual.zip` from GitHub Actions.
-2. Extract it.
-3. Copy the `kindlesudoku` folder to `/mnt/us/extensions/` on the Kindle.
-4. Launch from KUAL.
-5. Confirm the last puzzle restores after closing and reopening.
-6. Test New → 4x4 / 6x6 / 9x9 → each difficulty.
-7. Test Normal mode persistence.
-8. Test Pencil mode persistence.
-9. Test selected number persistence.
-10. Test erase behavior on user entries, pencil marks, and givens.
-11. Confirm incorrect entries draw an X and do not count as completed numbers.
-12. Confirm completed numbers disappear from the bottom bar.
-13. Tap filled cells and confirm all matching numbers invert black/white.
-
-## Design Notes
-
-The UI uses one custom GTK drawing surface instead of many widgets. That reduces redraw noise, keeps memory use low, and gives precise control over E Ink-friendly contrast and touch target sizing.
-
-The save format is intentionally simple line-based text so it can be inspected and recovered easily on the Kindle:
+Inside the artifact is:
 
 ```text
-/mnt/us/extensions/kindlesudoku/data/save.dat
+kindlesudoku-kual.zip
 ```
 
+That zip extracts to the installable KUAL extension folder:
 
-
-## Kindle Cross Build
-
-The Kindle build script mirrors the working KindleChess flow without Stockfish:
-
-```bash
-./scripts/build-kindlehf.sh
+```text
+kindlesudoku/
 ```
 
-That script builds or reuses koxtoolchain, builds or reuses the Kindle SDK for `kindlehf`, compiles with Meson using the generated Kindle cross file, and packages `dist/kindlesudoku-kual.zip`.
+## Repository Structure
+
+```text
+.github/workflows/     GitHub Actions workflow
+extension/             KUAL extension files and launcher scripts
+src/                   Application source code
+tests/                 Engine smoke tests
+scripts/               Build and packaging scripts
+meson.build            Meson build configuration
+README.md              Project documentation
+```
+
+## Runtime Logs
+
+For debugging on Kindle hardware, logs are written to:
+
+```text
+/mnt/us/extensions/kindlesudoku/data/launch.log
+/mnt/us/extensions/kindlesudoku/data/app.log
+```
+
+These logs are useful for diagnosing launch, display, input, and runtime issues.
+
+## Design Goals
+
+Kindle Sudoku prioritizes:
+
+- E-Ink readability
+- Low CPU usage
+- Low memory usage
+- Fast interaction
+- Large touch targets
+- Reliable save/restore
+- Simple code organization
+- Patch-friendly development
+- KUAL-compatible installation
+
+## Current Status
+
+The current version includes:
+
+- 4x4, 6x6, and 9x9 puzzle generation
+- Difficulty selection
+- Save/load support
+- Mark and Test input modes
+- Erase support
+- Mistake marking
+- Check button
+- Number highlighting
+- Auto-hide completed numbers
+- Completion popup
+- Local stats and leaderboards
+- Kindle touch fallback handling
+- KUAL packaging
+- GitHub Actions cloud build
+
+## Notes
+
+This project is intended for jailbroken Kindle devices capable of running KUAL extensions. It is not an official Amazon application.

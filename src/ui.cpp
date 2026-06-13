@@ -6,14 +6,24 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <ctime>
 #include <cstdlib>
+#include <ctime>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 namespace ksudoku {
 
 namespace {
+
+void append_app_log(const std::string& app_dir, const std::string& message) {
+    const std::string path = app_dir + "/data/app.log";
+    FILE* fp = std::fopen(path.c_str(), "a");
+    if (!fp) return;
+    const std::time_t now = std::time(nullptr);
+    std::fprintf(fp, "%ld %s\n", static_cast<long>(now), message.c_str());
+    std::fclose(fp);
+}
 
 void set_gray(cairo_t* cr, double value) {
     cairo_set_source_rgb(cr, value, value, value);
@@ -53,11 +63,11 @@ void draw_text(cairo_t* cr,
     int text_w = 0;
     int text_h = 0;
     pango_layout_get_pixel_size(layout, &text_w, &text_h);
+    (void)text_w;
 
-    // Pango performs the horizontal alignment inside the layout width we set
-    // above.  Do not also offset the Cairo origin for centered/right text, or
-    // the text is effectively aligned twice and appears pushed toward the
-    // right edge of buttons/cells on the Kindle.
+    // Pango performs horizontal alignment inside the layout width.  Keep the
+    // Cairo origin at the left edge of the text box so centered/right text is
+    // not offset twice.
     const double x = bounds.x;
     const double y = bounds.y + (bounds.h - text_h) / 2.0;
 
@@ -70,7 +80,7 @@ void draw_text(cairo_t* cr,
 }
 
 std::string digit_label(int value) {
-    if (value == 0) return "\u25A1"; // White square erase tool.
+    if (value == 0) return "\u25A1"; // Erase tool.
     if (value < 10) return std::string(1, static_cast<char>('0' + value));
     return std::string(1, static_cast<char>('A' + value - 10));
 }
@@ -85,38 +95,27 @@ std::string time_label(long seconds) {
     return out.str();
 }
 
-void append_app_log(const std::string& app_dir, const std::string& message) {
-    const std::string path = app_dir + "/data/app.log";
-    FILE* fp = std::fopen(path.c_str(), "a");
-    if (!fp) return;
-    const std::time_t now = std::time(nullptr);
-    std::fprintf(fp, "%ld %s\n", static_cast<long>(now), message.c_str());
-    std::fclose(fp);
-}
-
-int kindle_input_event_mask() {
-    return GDK_BUTTON_PRESS_MASK |
-           GDK_BUTTON_RELEASE_MASK |
-           GDK_POINTER_MOTION_MASK |
-           GDK_ENTER_NOTIFY_MASK |
-           GDK_LEAVE_NOTIFY_MASK |
-           GDK_FOCUS_CHANGE_MASK |
-           GDK_KEY_PRESS_MASK |
-           GDK_KEY_RELEASE_MASK;
+GdkEventMask sudoku_event_mask() {
+    return static_cast<GdkEventMask>(GDK_EXPOSURE_MASK |
+                                     GDK_BUTTON_PRESS_MASK |
+                                     GDK_BUTTON_RELEASE_MASK |
+                                     GDK_POINTER_MOTION_MASK |
+                                     GDK_STRUCTURE_MASK |
+                                     GDK_KEY_PRESS_MASK);
 }
 
 gboolean raise_window_once(gpointer data) {
     GtkWidget* window = GTK_WIDGET(data);
     if (!window || !GTK_IS_WINDOW(window)) return FALSE;
 
-    gtk_window_fullscreen(GTK_WINDOW(window));
-    gtk_window_set_keep_above(GTK_WINDOW(window), TRUE);
+    gtk_widget_grab_focus(window);
     gtk_window_present(GTK_WINDOW(window));
 
     GdkWindow* gdk_window = gtk_widget_get_window(window);
     if (gdk_window) {
         gdk_window_raise(gdk_window);
         gdk_window_focus(gdk_window, GDK_CURRENT_TIME);
+        gdk_window_set_events(gdk_window, static_cast<GdkEventMask>(gdk_window_get_events(gdk_window) | sudoku_event_mask()));
     }
     return FALSE;
 }
@@ -136,24 +135,18 @@ SudokuApp::SudokuApp(int argc, char** argv, std::string app_dir)
 
 int SudokuApp::run() {
     append_app_log(app_dir_, "run: show window");
-    gtk_widget_show_all(window_);
-    gtk_window_fullscreen(GTK_WINDOW(window_));
-    gtk_window_set_keep_above(GTK_WINDOW(window_), TRUE);
-    gtk_window_present(GTK_WINDOW(window_));
-    raise_window_once(window_);
+    gtk_widget_show(window_);
+    configure_window_after_show();
 
-    // Kindle's home framework can steal focus immediately after KUAL starts a
-    // native process. Raise the window a few times after mapping so the game is
-    // visible instead of running behind the Kindle home screen.
-    g_timeout_add(250, raise_window_once, window_);
-    g_timeout_add(750, raise_window_once, window_);
-    g_timeout_add(1500, raise_window_once, window_);
-
-    configure_input_widgets();
+    // Repeat the raise/focus once the Kindle window manager has had a moment
+    // to map the window.  Do not use extra child widgets; this is deliberately
+    // the same simple top-level-window input model as the chess app.
+    g_timeout_add(150, raise_window_once, window_);
+    g_timeout_add(650, raise_window_once, window_);
 
     append_app_log(app_dir_, "run: enter gtk_main");
     gtk_main();
-    append_app_log(app_dir_, "run: exit gtk_main");
+    append_app_log(app_dir_, "run: gtk_main returned");
     return 0;
 }
 
@@ -168,57 +161,44 @@ void SudokuApp::create_window() {
     window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window_), "Kindle Sudoku");
     gtk_window_set_decorated(GTK_WINDOW(window_), FALSE);
-    gtk_window_set_resizable(GTK_WINDOW(window_), TRUE);
-    gtk_window_set_position(GTK_WINDOW(window_), GTK_WIN_POS_CENTER);
+    gtk_window_set_resizable(GTK_WINDOW(window_), FALSE);
+    gtk_window_set_position(GTK_WINDOW(window_), GTK_WIN_POS_NONE);
     gtk_window_set_keep_above(GTK_WINDOW(window_), TRUE);
-    gtk_window_set_default_size(GTK_WINDOW(window_), gdk_screen_width(), gdk_screen_height());
 
+    GdkScreen* screen = gdk_screen_get_default();
+    const int screen_w = screen ? gdk_screen_get_width(screen) : 758;
+    const int screen_h = screen ? gdk_screen_get_height(screen) : 1024;
+    gtk_window_move(GTK_WINDOW(window_), 0, 0);
+    gtk_window_set_default_size(GTK_WINDOW(window_), screen_w, screen_h);
+    gtk_window_resize(GTK_WINDOW(window_), screen_w, screen_h);
+
+    gtk_widget_set_app_paintable(window_, TRUE);
+    gtk_widget_set_double_buffered(window_, FALSE);
     gtk_widget_set_can_focus(window_, TRUE);
-    gtk_widget_add_events(window_, kindle_input_event_mask());
+    gtk_widget_add_events(window_, sudoku_event_mask());
 
-    event_box_ = gtk_event_box_new();
-    gtk_event_box_set_visible_window(GTK_EVENT_BOX(event_box_), FALSE);
-    gtk_widget_set_can_focus(event_box_, TRUE);
-    gtk_widget_add_events(event_box_, kindle_input_event_mask());
-
-    canvas_ = gtk_drawing_area_new();
-    gtk_widget_set_size_request(canvas_, gdk_screen_width(), gdk_screen_height());
-    gtk_widget_set_app_paintable(canvas_, TRUE);
-    gtk_widget_set_can_focus(canvas_, TRUE);
-    gtk_widget_add_events(canvas_, kindle_input_event_mask());
-
-    gtk_container_add(GTK_CONTAINER(window_), event_box_);
-    gtk_container_add(GTK_CONTAINER(event_box_), canvas_);
-
-    g_signal_connect(G_OBJECT(canvas_), "expose-event", G_CALLBACK(SudokuApp::on_expose), this);
-
-    // Kindle touch can arrive at either the drawing surface or its parent
-    // container depending on firmware/input routing. Listen at all three
-    // levels and collapse duplicates in should_process_button_event().
-    g_signal_connect(G_OBJECT(canvas_), "button-press-event", G_CALLBACK(SudokuApp::on_button_press), this);
-    g_signal_connect(G_OBJECT(canvas_), "button-release-event", G_CALLBACK(SudokuApp::on_button_release), this);
-    g_signal_connect(G_OBJECT(event_box_), "button-press-event", G_CALLBACK(SudokuApp::on_root_button_press), this);
-    g_signal_connect(G_OBJECT(event_box_), "button-release-event", G_CALLBACK(SudokuApp::on_root_button_release), this);
-    g_signal_connect(G_OBJECT(window_), "button-press-event", G_CALLBACK(SudokuApp::on_root_button_press), this);
-    g_signal_connect(G_OBJECT(window_), "button-release-event", G_CALLBACK(SudokuApp::on_root_button_release), this);
-
+    g_signal_connect(G_OBJECT(window_), "expose-event", G_CALLBACK(SudokuApp::on_expose), this);
+    g_signal_connect(G_OBJECT(window_), "button-press-event", G_CALLBACK(SudokuApp::on_button_press), this);
+    g_signal_connect(G_OBJECT(window_), "button-release-event", G_CALLBACK(SudokuApp::on_button_release), this);
     g_signal_connect(G_OBJECT(window_), "delete-event", G_CALLBACK(SudokuApp::on_delete), this);
     g_signal_connect(G_OBJECT(window_), "destroy", G_CALLBACK(gtk_main_quit), nullptr);
 }
 
-void SudokuApp::configure_input_widgets() {
-    GtkWidget* widgets[] = {window_, event_box_, canvas_};
-    for (GtkWidget* widget : widgets) {
-        if (!widget) continue;
-        gtk_widget_add_events(widget, kindle_input_event_mask());
-        GdkWindow* gdk_window = gtk_widget_get_window(widget);
-        if (gdk_window) {
-            gdk_window_set_events(gdk_window, static_cast<GdkEventMask>(gdk_window_get_events(gdk_window) | kindle_input_event_mask()));
-        }
+void SudokuApp::configure_window_after_show() {
+    gtk_window_move(GTK_WINDOW(window_), 0, 0);
+    GdkScreen* screen = gdk_screen_get_default();
+    const int screen_w = screen ? gdk_screen_get_width(screen) : 758;
+    const int screen_h = screen ? gdk_screen_get_height(screen) : 1024;
+    gtk_window_resize(GTK_WINDOW(window_), screen_w, screen_h);
+    gtk_widget_grab_focus(window_);
+
+    GdkWindow* gdk_window = gtk_widget_get_window(window_);
+    if (gdk_window) {
+        gdk_window_set_events(gdk_window, static_cast<GdkEventMask>(gdk_window_get_events(gdk_window) | sudoku_event_mask()));
+        gdk_window_raise(gdk_window);
+        gdk_window_focus(gdk_window, GDK_CURRENT_TIME);
     }
-    if (event_box_) gtk_widget_grab_focus(event_box_);
-    if (canvas_) gtk_widget_grab_focus(canvas_);
-    append_app_log(app_dir_, "input: configured window/eventbox/canvas event masks");
+    append_app_log(app_dir_, "input: configured single top-level window event mask");
 }
 
 void SudokuApp::save_now() {
@@ -227,17 +207,14 @@ void SudokuApp::save_now() {
 }
 
 void SudokuApp::new_game(int size, Difficulty difficulty) {
+    append_app_log(app_dir_, "new_game: start generation");
     GeneratedPuzzle puzzle = engine_.generate(size, difficulty);
     state_.reset_from_puzzle(puzzle);
     save_now();
+    append_app_log(app_dir_, "new_game: generated and saved");
 }
 
 void SudokuApp::draw(cairo_t* cr, int width, int height) {
-    static bool logged_first_draw = false;
-    if (!logged_first_draw) {
-        logged_first_draw = true;
-        append_app_log(app_dir_, "draw: first expose");
-    }
     fill_rect(cr, Rect{0, 0, static_cast<double>(width), static_cast<double>(height)}, 1.0);
     draw_top_bar(cr, width, height);
     draw_board(cr, width, height);
@@ -288,9 +265,13 @@ void SudokuApp::draw_board(cairo_t* cr, int width, int height) {
             const int idx = r * n + c;
             Rect cell_rect{board_rect_.x + c * cell, board_rect_.y + r * cell, cell, cell};
             const int visible = state_.visible_value(idx);
+            const bool selected = idx == state_.selected_cell;
             const bool highlighted = state_.highlight_number != 0 && visible == state_.highlight_number;
+
             if (highlighted) {
                 fill_rect(cr, cell_rect, 0.0);
+            } else if (selected) {
+                fill_rect(cr, cell_rect, 0.90);
             }
 
             if (visible != 0) {
@@ -431,6 +412,7 @@ void SudokuApp::draw_modal(cairo_t* cr, int width, int height) {
 }
 
 void SudokuApp::draw_completion_banner(cairo_t* cr, int width, int height) {
+    (void)height;
     const double banner_w = std::min(width * 0.70, 520.0);
     const double banner_h = 62.0;
     Rect r{std::floor((width - banner_w) / 2.0), board_rect_.y + board_rect_.h + 8, banner_w, banner_h};
@@ -440,6 +422,10 @@ void SudokuApp::draw_completion_banner(cairo_t* cr, int width, int height) {
 }
 
 void SudokuApp::handle_tap(double x, double y) {
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "tap: x=%.1f y=%.1f", x, y);
+    append_app_log(app_dir_, buf);
+
     if (modal_ != ModalMode::None) {
         handle_modal_tap(x, y);
         return;
@@ -453,6 +439,7 @@ void SudokuApp::handle_tap(double x, double y) {
     }
 
     if (exit_button_.contains(x, y)) {
+        append_app_log(app_dir_, "tap: exit");
         save_now();
         gtk_main_quit();
         return;
@@ -575,37 +562,16 @@ void SudokuApp::handle_board_tap(double x, double y) {
     queue_redraw();
 }
 
-void SudokuApp::log_button_event(const char* source, const char* phase, GdkEventButton* event) {
-    if (!event) {
-        append_app_log(app_dir_, std::string("input: ") + source + " " + phase + " null-event");
-        return;
-    }
-    char buffer[256];
-    std::snprintf(buffer, sizeof(buffer),
-                  "input: %s %s type=%d button=%u x=%.1f y=%.1f xroot=%.1f yroot=%.1f time=%u",
-                  source, phase, static_cast<int>(event->type), event->button,
-                  event->x, event->y, event->x_root, event->y_root, event->time);
-    append_app_log(app_dir_, buffer);
-}
-
 bool SudokuApp::should_process_button_event(GdkEventButton* event) {
     if (!event) return false;
-
-    // Some Kindle touch stacks report the primary tap as button 0 instead of
-    // desktop mouse button 1. Accept both; ignore only clearly secondary
-    // buttons.
     if (event->button > 1) return false;
 
     const double dx = event->x - last_tap_x_;
     const double dy = event->y - last_tap_y_;
     const double dist2 = dx * dx + dy * dy;
 
-    // Some Kindle/X input stacks emit both press and release for the same tap,
-    // while others only deliver one of them to GTK.  Accept either event, but
-    // collapse a press/release pair into one logical tap so modal buttons and
-    // board cells do not process twice.
     if (last_tap_time_ != 0 && event->time >= last_tap_time_ &&
-        event->time - last_tap_time_ < 700 && dist2 < 144.0) {
+        event->time - last_tap_time_ < 450 && dist2 < 196.0) {
         return false;
     }
 
@@ -615,13 +581,32 @@ bool SudokuApp::should_process_button_event(GdkEventButton* event) {
     return true;
 }
 
+void SudokuApp::log_button_event(const char* phase, GdkEventButton* event) {
+    char buf[220];
+    if (!event) {
+        std::snprintf(buf, sizeof(buf), "input: %s null", phase);
+    } else {
+        std::snprintf(buf, sizeof(buf),
+                      "input: %s type=%d button=%u x=%.1f y=%.1f root=%.1f,%.1f time=%u",
+                      phase,
+                      static_cast<int>(event->type),
+                      event->button,
+                      event->x,
+                      event->y,
+                      event->x_root,
+                      event->y_root,
+                      event->time);
+    }
+    append_app_log(app_dir_, buf);
+}
+
 void SudokuApp::queue_redraw() {
-    if (canvas_) gtk_widget_queue_draw(canvas_);
+    if (window_) gtk_widget_queue_draw(window_);
 }
 
 gboolean SudokuApp::on_expose(GtkWidget* widget, GdkEventExpose*, gpointer data) {
     SudokuApp* app = static_cast<SudokuApp*>(data);
-    cairo_t* cr = gdk_cairo_create(widget->window);
+    cairo_t* cr = gdk_cairo_create(gtk_widget_get_window(widget));
     GtkAllocation allocation;
     gtk_widget_get_allocation(widget, &allocation);
     app->draw(cr, allocation.width, allocation.height);
@@ -631,32 +616,16 @@ gboolean SudokuApp::on_expose(GtkWidget* widget, GdkEventExpose*, gpointer data)
 
 gboolean SudokuApp::on_button_press(GtkWidget*, GdkEventButton* event, gpointer data) {
     SudokuApp* app = static_cast<SudokuApp*>(data);
-    app->log_button_event("canvas", "press", event);
-    if (!app->should_process_button_event(event)) return FALSE;
+    app->log_button_event("press", event);
+    if (!app->should_process_button_event(event)) return TRUE;
     app->handle_tap(event->x, event->y);
     return TRUE;
 }
 
 gboolean SudokuApp::on_button_release(GtkWidget*, GdkEventButton* event, gpointer data) {
     SudokuApp* app = static_cast<SudokuApp*>(data);
-    app->log_button_event("canvas", "release", event);
-    if (!app->should_process_button_event(event)) return FALSE;
-    app->handle_tap(event->x, event->y);
-    return TRUE;
-}
-
-gboolean SudokuApp::on_root_button_press(GtkWidget*, GdkEventButton* event, gpointer data) {
-    SudokuApp* app = static_cast<SudokuApp*>(data);
-    app->log_button_event("root", "press", event);
-    if (!app->should_process_button_event(event)) return FALSE;
-    app->handle_tap(event->x, event->y);
-    return TRUE;
-}
-
-gboolean SudokuApp::on_root_button_release(GtkWidget*, GdkEventButton* event, gpointer data) {
-    SudokuApp* app = static_cast<SudokuApp*>(data);
-    app->log_button_event("root", "release", event);
-    if (!app->should_process_button_event(event)) return FALSE;
+    app->log_button_event("release", event);
+    if (!app->should_process_button_event(event)) return TRUE;
     app->handle_tap(event->x, event->y);
     return TRUE;
 }
